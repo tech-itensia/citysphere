@@ -1,0 +1,266 @@
+# SCaaS platform - local / dev stack.
+#   First time:  ./scripts/install-tb.sh      (creates the ThingsBoard schema)
+#   Then:        docker compose up -d --build
+#   Simulator:   docker compose --profile sim up -d simulator
+name: scaas
+
+x-node-service: &node-service
+  build: { context: ., dockerfile: Dockerfile }
+  image: scaas/node-services:dev
+  restart: unless-stopped
+  env_file: [{ path: .env, required: false }]
+  environment: &node-env
+    KAFKA_BROKERS: kafka:9092
+    REDIS_URL: redis://redis:6379
+    DATABASE_URL: postgres://scaas_app:scaas_app@postgres:5432/scaas
+    TENANT_SERVICE_URL: http://tenant-service:3000
+    INCIDENT_SERVICE_URL: http://incident-service:3000
+    LOG_LEVEL: info
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    kafka-init: { condition: service_completed_successfully }
+
+x-tb-node: &tb-node
+  image: thingsboard/tb-node:${TB_VERSION:-latest}
+  restart: unless-stopped
+  env_file: [infra/thingsboard/tb-node.env]
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    kafka-init: { condition: service_completed_successfully }
+    zookeeper: { condition: service_started }
+
+services:
+  # ======================================================================== infrastructure
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment: { POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres, POSTGRES_DB: postgres }
+    ports: ["5432:5432"]
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 5s, retries: 20 }
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports: ["6379:6379"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, retries: 20 }
+
+  zookeeper: # ThingsBoard microservice discovery
+    image: zookeeper:3.8
+    restart: unless-stopped
+    environment: { ZOO_MY_ID: 1, ZOO_SERVERS: "server.1=zookeeper:2888:3888;zookeeper:2181", ZOO_ADMINSERVER_ENABLED: "false" }
+
+  kafka: # KRaft single node (no ZooKeeper for Kafka itself)
+    image: apache/kafka:3.9.1
+    restart: unless-stopped
+    ports: ["29092:29092"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw  # base64 UUID, fixed so the volume can be reused
+    volumes: [kafka-data:/var/lib/kafka/data]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      retries: 30
+
+  kafka-init:
+    image: apache/kafka:3.9.1
+    depends_on: { kafka: { condition: service_healthy } }
+    volumes: [./infra/kafka/create-topics.sh:/create-topics.sh:ro]
+    entrypoint: ["/bin/bash", "/create-topics.sh"]
+    restart: "no"
+
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    restart: unless-stopped
+    ports: ["8085:8080"]
+    environment: { KAFKA_CLUSTERS_0_NAME: scaas, KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092 }
+    depends_on: { kafka: { condition: service_healthy } }
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    ports: ["8180:8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: postgres
+      KC_HOSTNAME: http://localhost:8180
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes: [./infra/keycloak:/opt/keycloak/data/import:ro]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  mailpit: # catches all outgoing email in development - UI on :8025
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports: ["8025:8025", "1025:1025"]
+
+  # ======================================================================== ThingsBoard CE (microservices, Kafka queue)
+  tb-js-executor:
+    image: thingsboard/tb-js-executor:${TB_VERSION:-latest}
+    restart: unless-stopped
+    env_file: [infra/thingsboard/tb-js-executor.env]
+    depends_on: { kafka-init: { condition: service_completed_successfully } }
+
+  tb-core1:
+    <<: *tb-node
+    hostname: tb-core1
+    environment: { TB_SERVICE_ID: tb-core1, TB_SERVICE_TYPE: tb-core, EDGES_ENABLED: "true" }
+    volumes: [tb-core1-logs:/var/log/thingsboard]
+
+  tb-rule-engine1:
+    <<: *tb-node
+    hostname: tb-rule-engine1
+    environment: { TB_SERVICE_ID: tb-rule-engine1, TB_SERVICE_TYPE: tb-rule-engine }
+    volumes: [tb-re1-logs:/var/log/thingsboard]
+
+  tb-mqtt-transport1:
+    image: thingsboard/tb-mqtt-transport:${TB_VERSION:-latest}
+    restart: unless-stopped
+    hostname: tb-mqtt-transport1
+    env_file: [infra/thingsboard/tb-transport.env]
+    environment: { TB_SERVICE_ID: tb-mqtt-transport1, MQTT_BIND_ADDRESS: 0.0.0.0, MQTT_BIND_PORT: 1883, MQTT_TIMEOUT: 10000 }
+    ports: ["1883:1883"]
+    volumes: [./infra/thingsboard/transport/mqtt:/config:ro]
+    depends_on: [tb-core1]
+
+  tb-http-transport1:
+    image: thingsboard/tb-http-transport:${TB_VERSION:-latest}
+    restart: unless-stopped
+    hostname: tb-http-transport1
+    env_file: [infra/thingsboard/tb-transport.env]
+    environment: { TB_SERVICE_ID: tb-http-transport1, HTTP_BIND_ADDRESS: 0.0.0.0, HTTP_BIND_PORT: 8081, HTTP_REQUEST_TIMEOUT: 60000 }
+    volumes: [./infra/thingsboard/transport/http:/config:ro]
+    depends_on: [tb-core1]
+
+  tb-web-ui1:
+    image: thingsboard/tb-web-ui:${TB_VERSION:-latest}
+    restart: unless-stopped
+    env_file: [infra/thingsboard/tb-web-ui.env]
+
+  tb-proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports: ["8080:80"]
+    volumes: [./infra/nginx/tb-proxy.conf:/etc/nginx/conf.d/default.conf:ro]
+    depends_on: [tb-core1, tb-http-transport1, tb-web-ui1]
+
+  # ======================================================================== SCaaS microservices (Node.js)
+  tenant-service:
+    <<: *node-service
+    command: ["node_modules/.bin/tsx", "services/tenant-service/src/index.ts"]
+    environment:
+      <<: *node-env
+      SERVICE_NAME: tenant-service
+      TB_URL: http://tb-proxy
+      TB_KAFKA_SERVERS: kafka:9092
+
+  ingest-service:
+    <<: *node-service
+    command: ["node_modules/.bin/tsx", "services/ingest-service/src/index.ts"]
+    ports: ["${INGEST_PORT:-8091}:3000"]
+    environment: { <<: *node-env, SERVICE_NAME: ingest-service }
+
+  normalizer-service:
+    <<: *node-service
+    command: ["node_modules/.bin/tsx", "services/normalizer-service/src/index.ts"]
+    environment: { <<: *node-env, SERVICE_NAME: normalizer-service }
+
+  tb-bridge-service:
+    <<: *node-service
+    command: ["node_modules/.bin/tsx", "services/tb-bridge-service/src/index.ts"]
+    environment:
+      <<: *node-env
+      SERVICE_NAME: tb-bridge-service
+      TB_URL: http://tb-proxy
+      TB_HTTP_TRANSPORT_URL: http://tb-http-transport1:8081
+
+  incident-service:
+    <<: *node-service
+    command: ["node_modules/.bin/tsx", "services/incident-service/src/index.ts"]
+    environment: { <<: *node-env, SERVICE_NAME: incident-service }
+
+  sla-workorder-service:
+    <<: *node-service
+    command: ["node_modules/.bin/tsx", "services/sla-workorder-service/src/index.ts"]
+    environment: { <<: *node-env, SERVICE_NAME: sla-workorder-service }
+
+  correlation-service:
+    <<: *node-service
+    command: ["node_modules/.bin/tsx", "services/correlation-service/src/index.ts"]
+    environment: { <<: *node-env, SERVICE_NAME: correlation-service }
+
+  notification-service:
+    <<: *node-service
+    command: ["node_modules/.bin/tsx", "services/notification-service/src/index.ts"]
+    environment: { <<: *node-env, SERVICE_NAME: notification-service, SMTP_HOST: mailpit, SMTP_PORT: 1025 }
+
+  audit-service:
+    <<: *node-service
+    command: ["node_modules/.bin/tsx", "services/audit-service/src/index.ts"]
+    environment: { <<: *node-env, SERVICE_NAME: audit-service }
+
+  connector-service:
+    <<: *node-service
+    command: ["node_modules/.bin/tsx", "services/connector-service/src/index.ts"]
+    environment: { <<: *node-env, SERVICE_NAME: connector-service }
+
+  api-gateway:
+    <<: *node-service
+    command: ["node_modules/.bin/tsx", "services/api-gateway/src/index.ts"]
+    ports: ["${GATEWAY_PORT:-8088}:3000"]
+    environment:
+      <<: *node-env
+      SERVICE_NAME: api-gateway
+      OIDC_ISSUER: http://localhost:8180/realms/scaas
+      OIDC_JWKS_URL: http://keycloak:8080/realms/scaas/protocol/openid-connect/certs
+      CORS_ORIGINS: http://localhost:5173
+      TWIN_SERVICE_URL: http://tb-bridge-service:3000
+      SLA_SERVICE_URL: http://sla-workorder-service:3000
+      NOTIFICATION_SERVICE_URL: http://notification-service:3000
+      AUDIT_SERVICE_URL: http://audit-service:3000
+      CONNECTOR_SERVICE_URL: http://connector-service:3000
+
+  web:
+    build: { context: ./apps/web }
+    image: scaas/web:dev
+    restart: unless-stopped
+    ports: ["${WEB_PORT:-5173}:80"]
+    depends_on: [api-gateway]
+
+  simulator:
+    <<: *node-service
+    profiles: ["sim"]
+    command: ["node_modules/.bin/tsx", "tools/simulator/src/index.ts"]
+    environment:
+      INGEST_URL: http://ingest-service:3000
+      SIM_TENANTS: delhi=${DEMO_API_KEY_DELHI:-sk_delhi_demo_0000000000000000000001},bengaluru=${DEMO_API_KEY_BENGALURU:-sk_bengaluru_demo_000000000000000000001}
+    depends_on: [ingest-service]
+
+volumes:
+  pg-data:
+  kafka-data:
+  tb-core1-logs:
+  tb-re1-logs:

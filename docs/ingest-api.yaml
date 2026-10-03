@@ -1,0 +1,83 @@
+openapi: 3.0.3
+info:
+  title: SCaaS Ingest API
+  version: 0.1.0
+  description: |
+    HTTP front door for device and integrator data. Every accepted record is published to Kafka
+    (`scaas.raw.telemetry`), normalized, pushed into the ThingsBoard digital twin and evaluated by its alarm rules.
+servers:
+  - url: http://localhost:8091
+security:
+  - apiKey: []
+paths:
+  /v1/telemetry:
+    post:
+      summary: Send one record, an array, or a batch of up to 1000 records
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/Record"
+                - type: array
+                  maxItems: 1000
+                  items: { $ref: "#/components/schemas/Record" }
+                - type: object
+                  required: [records]
+                  properties:
+                    records: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/Record" } }
+            example:
+              records:
+                - deviceId: SL-CONNAU-01
+                  deviceType: Street Light
+                  zone: Connaught Place
+                  location: { lat: 28.6315, lon: 77.2167 }
+                  values: { status: "ON", powerW: 71.8, energyKWh: 132.44, fault: false }
+                - deviceId: AQ-SAKET-01
+                  ts: 1790000000000
+                  values: { pm25: 41.2, aqi: 78 }
+      responses:
+        "202": { description: Accepted (some records may be rejected), content: { application/json: { schema: { $ref: "#/components/schemas/Result" } } } }
+        "400": { description: No valid records, content: { application/json: { schema: { $ref: "#/components/schemas/Result" } } } }
+        "401": { description: Missing or invalid API key }
+        "429": { description: Rate limit exceeded (records per second per key) }
+  /v1/devices/{deviceId}/telemetry:
+    post:
+      summary: Convenience endpoint for one device (flat key/value body)
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+        - { name: ts, in: query, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example: { deviceType: Smart Bin, zone: Saket, fillPct: 91, temperatureC: 33 }
+      responses:
+        "202": { description: Accepted }
+  /v1/schema:
+    get:
+      security: []
+      summary: Machine-readable description of the record format
+      responses: { "200": { description: OK } }
+components:
+  securitySchemes:
+    apiKey: { type: apiKey, in: header, name: x-api-key }
+  schemas:
+    Record:
+      type: object
+      required: [deviceId, values]
+      properties:
+        deviceId: { type: string, pattern: "^[A-Za-z0-9._:-]+$", maxLength: 128, description: Unique per tenant. Devices are auto-registered in ThingsBoard on first data. }
+        deviceType: { type: string, description: "Catalogue type (Street Light, Traffic Junction, Air Quality Station, Water Node, Power Meter, Smart Bin, Parking Sensor, Vehicle, Drone, Air Taxi, Emergency Unit, Weather Feed, City Event Feed). Inferred from the id prefix when omitted." }
+        ts: { oneOf: [{ type: integer, description: epoch ms }, { type: string, format: date-time }] }
+        values: { type: object, additionalProperties: { oneOf: [{ type: number }, { type: string }, { type: boolean }] } }
+        location: { type: object, properties: { lat: { type: number }, lon: { type: number } } }
+        zone: { type: string, description: Zone asset name; the device is related to it in the twin }
+        attributes: { type: object, description: Static metadata stored as ThingsBoard server attributes on registration }
+    Result:
+      type: object
+      properties:
+        accepted: { type: integer }
+        rejected: { type: array, items: { type: object, properties: { index: { type: integer }, deviceId: { type: string }, error: { type: string } } } }
+        eventIds: { type: array, items: { type: string } }

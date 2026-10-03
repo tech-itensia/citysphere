@@ -1,0 +1,9 @@
+{
+  "name": "@scaas/normalizer-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Validates, enriches and normalizes raw telemetry and external feeds into observations",
+  "scripts": { "start": "tsx src/index.ts", "dev": "tsx watch src/index.ts" },
+  "dependencies": { "@scaas/common": "*" }
+}

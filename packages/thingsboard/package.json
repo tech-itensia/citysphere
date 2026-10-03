@@ -1,0 +1,9 @@
+{
+  "name": "@scaas/thingsboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ThingsBoard CE REST client, device catalogue and tenant provisioning",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@scaas/common": "*" }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@scaas/ingest-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HTTP front door for device data: validates telemetry and publishes it to Kafka",
+  "scripts": { "start": "tsx src/index.ts", "dev": "tsx watch src/index.ts" },
+  "dependencies": { "@scaas/common": "*" }
+}

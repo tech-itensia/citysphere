@@ -1,0 +1,9 @@
+{
+  "name": "@scaas/simulator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "City device simulator: realistic telemetry for 13 device types plus scripted incidents, sent through ingest-service",
+  "scripts": { "start": "tsx src/index.ts", "once": "tsx src/index.ts --once" },
+  "dependencies": {}
+}

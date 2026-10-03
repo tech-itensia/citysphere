@@ -1,0 +1,538 @@
+{
+  "realm": "scaas",
+  "enabled": true,
+  "displayName": "Smart City Operating System",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "resetPasswordAllowed": true,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 3600,
+  "roles": {
+    "realm": [
+      {
+        "name": "super_admin",
+        "description": "Platform Super Admin - manages all city tenants"
+      },
+      {
+        "name": "city_admin",
+        "description": "City Admin - users, zones, SLA policies, integrations"
+      },
+      {
+        "name": "leadership",
+        "description": "Leadership / Mayor - read-only city overview"
+      },
+      {
+        "name": "operator",
+        "description": "Command Centre Operator - live operations, incidents"
+      },
+      {
+        "name": "dept_head",
+        "description": "Department Head - department assets, incidents, SLA"
+      },
+      {
+        "name": "field_tech",
+        "description": "Field Technician - assigned work orders"
+      },
+      {
+        "name": "analyst",
+        "description": "Analyst - reports and trends"
+      },
+      {
+        "name": "it_ops",
+        "description": "IT / Platform Ops - system health, ingestion, DLQ"
+      },
+      {
+        "name": "citizen",
+        "description": "Citizen - report and track issues"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "tenants",
+      "path": "/tenants",
+      "subGroups": [
+        {
+          "name": "delhi",
+          "path": "/tenants/delhi",
+          "subGroups": [
+            {
+              "name": "departments",
+              "path": "/tenants/delhi/departments",
+              "subGroups": [
+                {
+                  "name": "water",
+                  "path": "/tenants/delhi/departments/water",
+                  "subGroups": []
+                },
+                {
+                  "name": "electricity",
+                  "path": "/tenants/delhi/departments/electricity",
+                  "subGroups": []
+                },
+                {
+                  "name": "traffic",
+                  "path": "/tenants/delhi/departments/traffic",
+                  "subGroups": []
+                },
+                {
+                  "name": "lighting",
+                  "path": "/tenants/delhi/departments/lighting",
+                  "subGroups": []
+                },
+                {
+                  "name": "waste",
+                  "path": "/tenants/delhi/departments/waste",
+                  "subGroups": []
+                },
+                {
+                  "name": "environment",
+                  "path": "/tenants/delhi/departments/environment",
+                  "subGroups": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "bengaluru",
+          "path": "/tenants/bengaluru",
+          "subGroups": [
+            {
+              "name": "departments",
+              "path": "/tenants/bengaluru/departments",
+              "subGroups": [
+                {
+                  "name": "water",
+                  "path": "/tenants/bengaluru/departments/water",
+                  "subGroups": []
+                },
+                {
+                  "name": "electricity",
+                  "path": "/tenants/bengaluru/departments/electricity",
+                  "subGroups": []
+                },
+                {
+                  "name": "traffic",
+                  "path": "/tenants/bengaluru/departments/traffic",
+                  "subGroups": []
+                },
+                {
+                  "name": "lighting",
+                  "path": "/tenants/bengaluru/departments/lighting",
+                  "subGroups": []
+                },
+                {
+                  "name": "waste",
+                  "path": "/tenants/bengaluru/departments/waste",
+                  "subGroups": []
+                },
+                {
+                  "name": "environment",
+                  "path": "/tenants/bengaluru/departments/environment",
+                  "subGroups": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "scaas-web",
+      "name": "SCaaS Web App",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "http://localhost:8088/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:8088/*"
+      },
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "full.path": "true",
+            "claim.name": "groups",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "superadmin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Platform",
+      "lastName": "Admin",
+      "email": "superadmin@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "super_admin"
+      ],
+      "groups": []
+    },
+    {
+      "username": "admin.delhi",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Delhi",
+      "lastName": "Admin",
+      "email": "admin.delhi@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "city_admin"
+      ],
+      "groups": [
+        "/tenants/delhi"
+      ]
+    },
+    {
+      "username": "mayor.delhi",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Delhi",
+      "lastName": "Commissioner",
+      "email": "mayor.delhi@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "leadership"
+      ],
+      "groups": [
+        "/tenants/delhi"
+      ]
+    },
+    {
+      "username": "operator.delhi",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Delhi",
+      "lastName": "Operator",
+      "email": "operator.delhi@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "operator"
+      ],
+      "groups": [
+        "/tenants/delhi"
+      ]
+    },
+    {
+      "username": "waterhead.delhi",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Delhi",
+      "lastName": "Water Head",
+      "email": "waterhead.delhi@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "dept_head"
+      ],
+      "groups": [
+        "/tenants/delhi/departments/water"
+      ]
+    },
+    {
+      "username": "tech.delhi",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Delhi",
+      "lastName": "Technician",
+      "email": "tech.delhi@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "field_tech"
+      ],
+      "groups": [
+        "/tenants/delhi/departments/water"
+      ]
+    },
+    {
+      "username": "analyst.delhi",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Delhi",
+      "lastName": "Analyst",
+      "email": "analyst.delhi@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "analyst"
+      ],
+      "groups": [
+        "/tenants/delhi"
+      ]
+    },
+    {
+      "username": "itops.delhi",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Delhi",
+      "lastName": "IT Ops",
+      "email": "itops.delhi@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "it_ops"
+      ],
+      "groups": [
+        "/tenants/delhi"
+      ]
+    },
+    {
+      "username": "citizen.delhi",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Delhi",
+      "lastName": "Resident",
+      "email": "citizen.delhi@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "citizen"
+      ],
+      "groups": [
+        "/tenants/delhi"
+      ]
+    },
+    {
+      "username": "admin.bengaluru",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bengaluru",
+      "lastName": "Admin",
+      "email": "admin.bengaluru@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "city_admin"
+      ],
+      "groups": [
+        "/tenants/bengaluru"
+      ]
+    },
+    {
+      "username": "mayor.bengaluru",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bengaluru",
+      "lastName": "Commissioner",
+      "email": "mayor.bengaluru@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "leadership"
+      ],
+      "groups": [
+        "/tenants/bengaluru"
+      ]
+    },
+    {
+      "username": "operator.bengaluru",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bengaluru",
+      "lastName": "Operator",
+      "email": "operator.bengaluru@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "operator"
+      ],
+      "groups": [
+        "/tenants/bengaluru"
+      ]
+    },
+    {
+      "username": "waterhead.bengaluru",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bengaluru",
+      "lastName": "Water Head",
+      "email": "waterhead.bengaluru@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "dept_head"
+      ],
+      "groups": [
+        "/tenants/bengaluru/departments/water"
+      ]
+    },
+    {
+      "username": "tech.bengaluru",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bengaluru",
+      "lastName": "Technician",
+      "email": "tech.bengaluru@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "field_tech"
+      ],
+      "groups": [
+        "/tenants/bengaluru/departments/water"
+      ]
+    },
+    {
+      "username": "analyst.bengaluru",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bengaluru",
+      "lastName": "Analyst",
+      "email": "analyst.bengaluru@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "analyst"
+      ],
+      "groups": [
+        "/tenants/bengaluru"
+      ]
+    },
+    {
+      "username": "itops.bengaluru",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bengaluru",
+      "lastName": "IT Ops",
+      "email": "itops.bengaluru@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "it_ops"
+      ],
+      "groups": [
+        "/tenants/bengaluru"
+      ]
+    },
+    {
+      "username": "citizen.bengaluru",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bengaluru",
+      "lastName": "Resident",
+      "email": "citizen.bengaluru@scaas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "citizen"
+      ],
+      "groups": [
+        "/tenants/bengaluru"
+      ]
+    }
+  ]
+}

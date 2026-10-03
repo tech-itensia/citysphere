@@ -1,0 +1,9 @@
+{
+  "name": "@scaas/sla-workorder-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Response/resolution SLA timers with amber/red escalation, and built-in work order management",
+  "scripts": { "start": "tsx src/index.ts", "dev": "tsx watch src/index.ts" },
+  "dependencies": { "@scaas/common": "*", "zod": "^3.24.1" }
+}

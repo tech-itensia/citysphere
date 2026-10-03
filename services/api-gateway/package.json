@@ -1,0 +1,9 @@
+{
+  "name": "@scaas/api-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Single entry point for the web apps: OIDC auth, tenant + persona RBAC, rate limits, audit, routing, live SSE",
+  "scripts": { "start": "tsx src/index.ts", "dev": "tsx watch src/index.ts" },
+  "dependencies": { "@scaas/common": "*", "@fastify/cors": "^10.0.1", "jose": "^5.9.6" }
+}
