@@ -16,8 +16,12 @@ git branch -M main
 git remote get-url origin >/dev/null 2>&1 && git remote set-url origin "$REMOTE" || git remote add origin "$REMOTE"
 
 echo "==> Testing SSH access to GitHub (enter your key passphrase if asked)"
-ssh -T git@github.com 2>&1 | grep -qi "successfully authenticated" \
-  || { echo "SSH auth to GitHub failed. Add your key: ssh-add --apple-use-keychain ~/.ssh/id_ed25519 (and make sure it's on your GitHub account)."; exit 1; }
+KEY=${SSH_KEY:-}
+[ -n "$KEY" ] && export GIT_SSH_COMMAND="ssh -i $KEY -o IdentitiesOnly=yes"
+OUT=$(${GIT_SSH_COMMAND:-ssh} -T git@github.com 2>&1 || true)   # ssh -T always exits 1, even on success
+echo "$OUT"
+echo "$OUT" | grep -qi "successfully authenticated" \
+  || { echo "SSH auth failed. Try another key: SSH_KEY=~/.ssh/<your-key> bash scripts/push-to-github.sh"; ls ~/.ssh; exit 1; }
 
 echo "==> Pushing to $REMOTE"
 git push -u origin main
