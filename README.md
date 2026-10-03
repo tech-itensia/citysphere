@@ -1,6 +1,8 @@
-# SCaaS — Smart City as a Service
+# CitySphere — Smart City as a Service
 
-A multi-tenant smart city platform built on **ThingsBoard CE (microservices mode)**, **Apache Kafka**, **Node.js/TypeScript microservices**, **Keycloak** and **PostgreSQL**, all run with Docker. A React web app with persona dashboards (`apps/web`) comes next.
+A multi-tenant smart city platform built on **ThingsBoard CE (microservices mode)**, **Apache Kafka**, **Node.js/TypeScript microservices**, **Keycloak**, **PostgreSQL** and a **React** web app (`apps/web`), all run with Docker. No FIWARE: ThingsBoard is the device layer and a Kafka event envelope is the context model.
+
+**What you get (v2):** nine persona workspaces (Platform Super Admin, City Admin, Leadership, Command Centre Operator, Department Head, Field Technician, Analyst, IT Ops, Citizen), a full Command Centre (queue, live map with layers and 24 h replay, SLA watchlist, correlation insights, advisories, shift handover, wall mode), a device registry with zone → site → asset → device mapping, a 6-step onboarding wizard, CSV import, auto-discovery and vendor-key mapping profiles, the plan's incident lifecycle (Resolution Pending, Escalated, Dismiss), a Super Admin console (city wizard, plans, quotas, modules, suspend/resume, announcements) and a citizen portal (report with photo + pin, confirm or reopen, advisories, journey check, preferences).
 
 ```
 Devices / integrators ──HTTP──▶ ingest-service ──▶ Kafka scaas.raw.telemetry ──▶ normalizer ──▶ scaas.normalized.observations
@@ -30,7 +32,10 @@ React app ──▶ api-gateway (Keycloak OIDC, tenant + persona RBAC, SSE live 
 | `correlation-service` | – | Cross-domain rules: rain + congestion, public event + congestion, several low-pressure nodes = main break |
 | `notification-service` | – | Rule-based email (Mailpit in dev), SMS, webhook and push notifications |
 | `audit-service` | – | Append-only audit trail of every change |
-| `tenant-service` | – | Cities (tenants), one-click ThingsBoard provisioning, API keys |
+| `tenant-service` | – | Cities, plans/quotas/modules, suspend/resume, ThingsBoard provisioning with a step log, departments + category routing, users & roles (Keycloak admin API), announcements, API keys |
+| `asset-service` | – | Device registry: zone → site → asset → device, 7-state device lifecycle, ThingsBoard provisioning (token + attributes), CSV import with dry run, auto-discovery of unknown senders, mapping profiles; publishes a Redis projection used by normalizer and incident-service |
+| `web` | 5173 | React app: all persona dashboards and the Command Centre (falls back to built-in demo data when the gateway is down) |
+| `db-migrate` | – | One-shot job: applies `infra/postgres/migrations/*.sql` in order before the services start |
 | `connector-service` | – | Weather (Open-Meteo), public events, generic traffic feed, CSV batch import |
 | `tools/simulator` | – | 227 simulated devices across two cities plus 12 incident scenarios |
 
@@ -51,6 +56,7 @@ docker compose --profile sim up -d simulator  # start sending city data
 
 | URL | What | Login |
 | --- | --- | --- |
+| http://localhost:5173 | **CitySphere web app** | pick a demo persona, or SSO with `operator.delhi` / `Demo@123` |
 | http://localhost:8088 | SCaaS API gateway | Keycloak token, or a dev token (below) |
 | http://localhost:8091/v1/schema | Ingest API | `x-api-key` |
 | http://localhost:8080 | ThingsBoard UI | `sysadmin@thingsboard.org` / `sysadmin` |
@@ -80,6 +86,16 @@ curl -s -X POST http://localhost:8180/realms/scaas/protocol/openid-connect/token
 ```
 
 For quick curl tests, `ALLOW_DEV_TOKENS=true` (dev only) also accepts `Authorization: Bearer dev:<user>:<tenant>:<role,role>`.
+
+## Upgrading an existing install to v2
+
+```bash
+git pull
+docker compose up -d --build        # db-migrate applies 001_product_v2.sql, asset-service seeds the demo registry
+./scripts/fix-keycloak.sh           # only if logins show "no SCaaS persona role"
+```
+
+The migration is idempotent and keeps existing data (old `Verified` incidents become `Resolved`, `Reopened` become `In Progress`).
 
 ## Sending device data
 

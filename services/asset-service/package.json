@@ -1,0 +1,9 @@
+{
+  "name": "@scaas/asset-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Device registry: zone -> site -> asset -> device hierarchy, device lifecycle, ThingsBoard provisioning, CSV import, auto-discovery, mapping profiles",
+  "scripts": { "start": "tsx src/index.ts", "dev": "tsx watch src/index.ts", "test": "node --test test/" },
+  "dependencies": { "@scaas/common": "*", "@scaas/thingsboard": "*", "zod": "^3.24.1" }
+}

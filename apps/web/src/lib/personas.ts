@@ -2,7 +2,7 @@ export type Persona =
   | "super_admin" | "city_admin" | "leadership" | "operator" | "dept_head"
   | "field_tech" | "analyst" | "it_ops" | "citizen";
 
-export interface NavItem { to: string; label: string; icon: string }
+export interface NavItem { to: string; label: string; icon: string; module?: string }
 
 export const PERSONA_META: Record<Persona, { label: string; description: string; color: string; icon: string; home: string }> = {
   super_admin: { label: "Platform Super Admin", description: "All cities, onboarding, platform health", color: "#0f172a", icon: "Globe", home: "/platform" },
@@ -17,37 +17,38 @@ export const PERSONA_META: Record<Persona, { label: string; description: string;
 };
 
 const ALL: Record<string, NavItem> = {
-  platform: { to: "/platform", label: "Tenants", icon: "Globe" },
+  platform: { to: "/platform", label: "Platform console", icon: "Globe" },
   overview: { to: "/overview", label: "City overview", icon: "Home" },
-  command: { to: "/command-centre", label: "Command Centre", icon: "Siren" },
+  command: { to: "/command-centre", label: "Command Centre", icon: "Siren", module: "command_centre" },
   incidents: { to: "/incidents", label: "Incidents", icon: "AlertTriangle" },
-  workorders: { to: "/work-orders", label: "Work orders", icon: "ClipboardList" },
-  twin: { to: "/twin", label: "Digital twin", icon: "Layers" },
-  analytics: { to: "/analytics", label: "Analytics", icon: "BarChart3" },
+  workorders: { to: "/work-orders", label: "Work orders", icon: "ClipboardList", module: "sla_workorders" },
+  assets: { to: "/assets", label: "Assets & devices", icon: "Cpu", module: "digital_twin" },
+  twin: { to: "/twin", label: "Digital twin", icon: "Layers", module: "digital_twin" },
+  analytics: { to: "/analytics", label: "Analytics & reports", icon: "BarChart3", module: "analytics" },
   department: { to: "/department", label: "My department", icon: "Users" },
   field: { to: "/field", label: "My jobs", icon: "Wrench" },
   ops: { to: "/ops", label: "System health", icon: "Server" },
-  admin: { to: "/admin", label: "Administration", icon: "Settings" },
-  citizen: { to: "/citizen", label: "Report an issue", icon: "Megaphone" },
+  admin: { to: "/admin", label: "City setup", icon: "Settings" },
+  citizen: { to: "/citizen", label: "Citizen portal", icon: "Megaphone", module: "citizen_portal" },
 };
 
 const NAV: Record<Persona, string[]> = {
-  super_admin: ["platform", "overview", "command", "incidents", "workorders", "twin", "analytics", "ops", "admin"],
-  city_admin: ["admin", "overview", "incidents", "workorders", "twin", "analytics", "ops"],
+  super_admin: ["platform", "overview", "command", "incidents", "workorders", "assets", "twin", "analytics", "ops", "admin"],
+  city_admin: ["admin", "overview", "assets", "incidents", "workorders", "twin", "analytics", "ops"],
   leadership: ["overview", "analytics", "twin", "incidents"],
-  operator: ["command", "incidents", "workorders", "twin", "overview"],
-  dept_head: ["department", "incidents", "workorders", "analytics", "twin"],
+  operator: ["command", "incidents", "workorders", "twin", "assets", "overview"],
+  dept_head: ["department", "incidents", "workorders", "assets", "analytics", "twin"],
   field_tech: ["field"],
   analyst: ["analytics", "overview", "incidents", "twin"],
-  it_ops: ["ops", "twin", "incidents"],
+  it_ops: ["ops", "assets", "twin", "incidents"],
   citizen: ["citizen"],
 };
 
-/** Union of navigation for every role the user holds, in priority order. */
-export function navFor(roles: Persona[]): NavItem[] {
+/** Union of navigation for every role the user holds, in priority order; hides modules the city's plan does not include. */
+export function navFor(roles: Persona[], modules?: string[]): NavItem[] {
   const keys: string[] = [];
   for (const r of roles) for (const k of NAV[r] ?? []) if (!keys.includes(k)) keys.push(k);
-  return keys.map((k) => ALL[k]);
+  return keys.map((k) => ALL[k]).filter((n) => roles.includes("super_admin") || !n.module || !modules || modules.includes(n.module));
 }
 
 export function primaryPersona(roles: Persona[]): Persona {
@@ -55,9 +56,9 @@ export function primaryPersona(roles: Persona[]): Persona {
   return order.find((p) => roles.includes(p)) ?? "citizen";
 }
 
-export function canAccess(roles: Persona[], path: string): boolean {
+export function canAccess(roles: Persona[], path: string, modules?: string[]): boolean {
   if (path === "/" || path === "/login") return true;
-  return navFor(roles).some((n) => path.startsWith(n.to));
+  return navFor(roles, modules).some((n) => path.startsWith(n.to));
 }
 
 /** Demo users (match infra/keycloak/realm-scaas.json; password Demo@123). */

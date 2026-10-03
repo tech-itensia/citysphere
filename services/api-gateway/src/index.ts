@@ -3,7 +3,7 @@ import {
   createApp, listen, env, envInt, getRedis, HttpError, internalHeaders, audit, logger, waitFor, inc, setGauge,
 } from "@scaas/common";
 import { identify, type Identity } from "./auth.ts";
-import { matchRoute, allowed, homeFor } from "./access.ts";
+import { matchRoute, allowed, entitled, homeFor } from "./access.ts";
 import { addClient, startStream, clientCount } from "./stream.ts";
 
 const UPSTREAMS: Record<string, string> = {
@@ -14,7 +14,20 @@ const UPSTREAMS: Record<string, string> = {
   NOTIFY: env("NOTIFICATION_SERVICE_URL", "http://notification-service:3000"),
   AUDIT: env("AUDIT_SERVICE_URL", "http://audit-service:3000"),
   CONNECTOR: env("CONNECTOR_SERVICE_URL", "http://connector-service:3000"),
+  ASSET: env("ASSET_SERVICE_URL", "http://asset-service:3000"),
 };
+
+// ---------------------------------------------------------------- city metadata (status, plan, modules), cached 20 s
+let cities: { at: number; rows: any[] } = { at: 0, rows: [] };
+async function cityMeta(tenantId: string): Promise<any | undefined> {
+  if (Date.now() - cities.at > 20_000) {
+    try {
+      const res = await fetch(`${UPSTREAMS.TENANT}/internal/tenants/all`, { headers: internalHeaders() });
+      if (res.ok) cities = { at: Date.now(), rows: (await res.json()) as any[] };
+    } catch (err) { logger.warn({ err }, "city metadata unavailable"); }
+  }
+  return cities.rows.find((t) => t.id === tenantId);
+}
 const RATE_PER_MIN = envInt("GATEWAY_RATE_PER_MIN", 600);
 const redis = getRedis();
 
@@ -29,6 +42,10 @@ async function who(req: any): Promise<Identity> {
   const n = await redis.incr(k);
   if (n === 1) await redis.expire(k, 70);
   if (n > RATE_PER_MIN) throw new HttpError(429, "Too many requests");
+  if (!id.roles.includes("super_admin")) {
+    const meta = await cityMeta(id.tenantId);
+    if (meta?.status === "suspended") throw new HttpError(423, `${meta.cityName ?? id.tenantId} is suspended on the platform. Contact the platform administrator.`);
+  }
   return id;
 }
 
@@ -53,7 +70,40 @@ async function call(upstream: string, path: string, id: Identity, req: any) {
 // ---------------------------------------------------------------- identity
 app.get("/api/me", async (req: any) => {
   const id = await who(req);
-  return { ...id, home: homeFor(id.roles) };
+  const meta = await cityMeta(id.tenantId);
+  return {
+    ...id, home: homeFor(id.roles),
+    city: meta ? { id: meta.id, name: meta.name, cityName: meta.cityName, center: meta.center, plan: meta.plan, modules: meta.modules, status: meta.status, branding: meta.branding } : undefined,
+  };
+});
+
+// ---------------------------------------------------------------- platform usage (super admin console)
+app.get("/api/platform/usage", async (req: any) => {
+  const id = await who(req);
+  if (!id.roles.includes("super_admin")) throw new HttpError(403, "Platform admin only");
+  cities.at = 0;
+  const get = async (base: string) => {
+    try { const r = await fetch(`${base}/internal/usage`, { headers: internalHeaders(), signal: AbortSignal.timeout(4000) }); return r.ok ? ((await r.json()) as any[]) : []; } catch { return []; }
+  };
+  const [_, devices, incidents] = await Promise.all([cityMeta("_refresh"), get(UPSTREAMS.ASSET), get(UPSTREAMS.INCIDENT)]);
+  const rows = cities.rows.map((t) => {
+    const d = devices.find((x) => x.tenant_id === t.id) ?? {};
+    const i = incidents.find((x) => x.tenant_id === t.id) ?? {};
+    return {
+      id: t.id, name: t.name, cityName: t.cityName, status: t.status, plan: t.plan, modules: t.modules, center: t.center, error: t.error,
+      population: t.population, quotas: t.effectiveQuotas, zones: (t.zones ?? []).length, createdAt: t.createdAt,
+      devices: d.total ?? 0, activeDevices: d.active ?? 0, offlineDevices: d.offline ?? 0, discoveredDevices: d.discovered ?? 0,
+      openIncidents: i.open ?? 0, criticalIncidents: i.critical ?? 0, incidents24h: i.last24h ?? 0,
+      deviceQuotaPct: t.effectiveQuotas?.devices ? Math.round(((d.total ?? 0) / t.effectiveQuotas.devices) * 1000) / 10 : 0,
+    };
+  });
+  const sum = (k: string) => rows.reduce((n, r: any) => n + (r[k] ?? 0), 0);
+  return {
+    generatedAt: new Date().toISOString(), cities: rows,
+    totals: { cities: rows.length, active: rows.filter((r) => r.status === "active").length, suspended: rows.filter((r) => r.status === "suspended").length,
+      failed: rows.filter((r) => r.status === "failed").length, devices: sum("devices"), activeDevices: sum("activeDevices"), openIncidents: sum("openIncidents"),
+      incidents24h: sum("incidents24h"), population: sum("population") },
+  };
 });
 
 // ---------------------------------------------------------------- leadership overview (one call, cached 5 s)
@@ -63,15 +113,17 @@ app.get("/api/overview", async (req: any) => {
   const cacheKey = `t:${id.tenantId}:overview`;
   const cached = await redis.get(cacheKey);
   if (cached) return JSON.parse(cached);
-  const [twin, incidents, sla, tenant, recent, weather] = await Promise.all([
+  const [twin, incidents, sla, tenant, recent, weather, assets, advisories] = await Promise.all([
     call("TWIN", "/twin/summary", id, req),
     call("INCIDENT", "/incidents/stats", id, req),
     call("SLA", "/sla/summary", id, req),
     call("TENANT", `/tenants/${id.tenantId}`, id, req).catch(() => undefined),
     call("INCIDENT", "/incidents?open=true&limit=8", id, req),
     call("TWIN", `/twin/devices?type=${encodeURIComponent("Weather Feed")}`, id, req).catch(() => []),
+    call("ASSET", "/assets/summary", id, req).catch(() => undefined),
+    call("INCIDENT", "/advisories", id, req).catch(() => []),
   ]);
-  const body = { generatedAt: new Date().toISOString(), tenant, twin, incidents, sla, recentAlerts: recent, weather: (weather as any[])[0]?.values ?? null };
+  const body = { generatedAt: new Date().toISOString(), tenant, twin, incidents, sla, recentAlerts: recent, weather: (weather as any[])[0]?.values ?? null, assets, advisories };
   await redis.set(cacheKey, JSON.stringify(body), "EX", 5);
   return body;
 });
@@ -100,6 +152,7 @@ const HEALTH_TARGETS: Record<string, string> = {
   "tenant-service": UPSTREAMS.TENANT, "incident-service": UPSTREAMS.INCIDENT, "sla-workorder-service": UPSTREAMS.SLA,
   "tb-bridge-service": UPSTREAMS.TWIN, "notification-service": UPSTREAMS.NOTIFY, "audit-service": UPSTREAMS.AUDIT,
   "connector-service": UPSTREAMS.CONNECTOR,
+  "asset-service": UPSTREAMS.ASSET,
   "ingest-service": env("INGEST_SERVICE_URL", "http://ingest-service:3000"),
   "normalizer-service": env("NORMALIZER_SERVICE_URL", "http://normalizer-service:3000"),
   "correlation-service": env("CORRELATION_SERVICE_URL", "http://correlation-service:3000"),
@@ -125,6 +178,7 @@ app.all("/api/*", async (req: any, reply: any) => {
   if (!route) throw new HttpError(404, "Unknown API route");
   const id = await who(req);
   if (!allowed(id.roles, route)) throw new HttpError(403, `Persona ${id.roles.join(",")} cannot access ${route.prefix}`);
+  if (!entitled(id.roles, route, (await cityMeta(id.tenantId))?.modules)) throw new HttpError(402, `The ${route.module} module is not included in this city's plan`);
 
   const rest = req.url.slice(route.prefix.length);
   const target = `${UPSTREAMS[route.upstream]}${route.path}${rest}`;

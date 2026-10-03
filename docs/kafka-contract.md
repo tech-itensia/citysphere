@@ -27,6 +27,7 @@ All SCaaS events share one JSON envelope. The message **key** is `${tenantId}:${
 | `scaas.workorders` | sla-workorder-service | `workorder.created`, `workorder.updated` | notification, api-gateway | 30 d |
 | `scaas.notifications.outbox` | any service | `notification.requested` | notification | 7 d |
 | `scaas.audit` | api-gateway, all services | `audit.recorded` | audit-service | 90 d |
+| `scaas.assets` | asset-service | `device.registered`, `device.updated`, `device.provisioned`, `device.status.changed` | (any; audit, analytics) | 30 d |
 | `scaas.dlq.<consumer-group>` | any consumer after 3 failed attempts | original payload + error | IT/Ops replay | 30 d |
 
 ## Posting device data

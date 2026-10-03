@@ -29,8 +29,9 @@ function pinElement(color: string, glyph: keyof typeof PIN_SVG, pulse: boolean) 
 }
 
 export function CityMap({
-  center, devices = [], incidents = [], height, tall, onSelectDevice, onSelectIncident, onPick, showLegend = true, title, live = true,
+  center, devices = [], incidents = [], height, tall, onSelectDevice, onSelectIncident, onPick, showLegend = true, title, live = true, zoom = 11.3,
 }: {
+  zoom?: number;
   center: { lat: number; lon: number };
   devices?: MapDevice[];
   incidents?: MapIncident[];
@@ -46,7 +47,7 @@ export function CityMap({
   const box = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const markers = useRef<maplibregl.Marker[]>([]);
-  const [mode, setMode] = useState<"2d" | "3d">("3d");
+  const [mode, setMode] = useState<"2d" | "3d">(zoom < 8 ? "2d" : "3d");
   const [loaded, setLoaded] = useState(false);
   const cb = useRef({ onSelectDevice, onSelectIncident, onPick });
   cb.current = { onSelectDevice, onSelectIncident, onPick };
@@ -55,7 +56,7 @@ export function CityMap({
   useEffect(() => {
     if (!box.current) return;
     const m = new maplibregl.Map({
-      container: box.current, style: STYLE, center: [center.lon, center.lat], zoom: 11.3, pitch: 50, bearing: -15, attributionControl: { compact: true },
+      container: box.current, style: STYLE, center: [center.lon, center.lat], zoom, pitch: zoom < 8 ? 0 : 50, bearing: -15, attributionControl: { compact: true },
     });
     map.current = m;
     m.on("load", () => {

@@ -8,7 +8,10 @@ import {
 } from "./sla.ts";
 
 const INCIDENT_URL = env("INCIDENT_SERVICE_URL", "http://incident-service:3000");
-const AUTO_RESOLVE_INCIDENT = envBool("AUTO_RESOLVE_INCIDENT_ON_WO_COMPLETE", false);
+/** Completing the last open work order moves its incident to Resolution Pending (plan section F). */
+const COMPLETE_INCIDENT_ON_WO = envBool("COMPLETE_INCIDENT_ON_WO_COMPLETE", true);
+/** Where the resolution clock stops: "closed" (plan default) or "resolved". */
+const RESOLUTION_STOP = env("SLA_RESOLUTION_STOP", "closed") === "resolved" ? "resolved" : "closed";
 const ZSET = "sla:checkpoints";
 const redis = getRedis();
 const app = createApp({ internalOnly: true, ready: async () => { await getPool().query("select 1"); return true; } });
@@ -54,7 +57,8 @@ async function onIncident(event: EventEnvelope<IncidentEvt>) {
     await withTenant(t, (c) => c.query("update sla.timers set response_met_at=coalesce(response_met_at, now()) where incident_id=$1", [i.id]));
     await unschedule(t, i.id, "response");
   }
-  if (action === "resolve" || action === "close") {
+  const stopsResolution = action === "close" || action === "dismiss" || (RESOLUTION_STOP === "resolved" && (action === "resolve" || action === "confirm"));
+  if (stopsResolution) {
     await withTenant(t, (c) => c.query(
       "update sla.timers set response_met_at=coalesce(response_met_at, now()), resolution_met_at=coalesce(resolution_met_at, now()) where incident_id=$1", [i.id]));
     await unschedule(t, i.id, "response");
@@ -136,10 +140,28 @@ app.get("/sla/timers", async (req: any) => {
     const created = new Date(r.created_at).getTime(), rd = new Date(r.response_due).getTime(), sd = new Date(r.resolution_due).getTime();
     return {
       incidentId: r.incident_id, responseDue: r.response_due, resolutionDue: r.resolution_due,
+      responseMet: !!r.response_met_at, resolutionMet: !!r.resolution_met_at, escalateTo: r.escalate_to || undefined,
       response: rag(now, created + (rd - created) * 0.75, rd, r.response_met_at ? new Date(r.response_met_at).getTime() : null),
       resolution: rag(now, created + (sd - created) * 0.75, sd, r.resolution_met_at ? new Date(r.resolution_met_at).getTime() : null),
     };
   });
+});
+
+/** Watchlist: unmet clocks ordered by time to breach (both clocks; breached ones first). */
+app.get("/sla/at-risk", async (req: any) => {
+  const c = ctx(req);
+  requireRole(c, "operator", "dept_head", "leadership", "analyst", "city_admin", "it_ops");
+  const limit = Math.min(Number(req.query?.limit ?? 20), 100);
+  const rows = await withTenant(c.tenantId, async (db) => (await db.query(
+    `select incident_id, severity, category, escalate_to, 'response' clock, response_due due, response_status status from sla.timers where response_met_at is null
+     union all
+     select incident_id, severity, category, escalate_to, 'resolution', resolution_due, resolution_status from sla.timers where resolution_met_at is null
+     order by due asc limit $1`, [limit])).rows);
+  const now = Date.now();
+  return rows.map((r: any) => ({
+    incidentId: r.incident_id, clock: r.clock, severity: r.severity, category: r.category, escalateTo: r.escalate_to || undefined,
+    dueAt: r.due, remainingMs: new Date(r.due).getTime() - now, rag: new Date(r.due).getTime() <= now ? "red" : r.status,
+  }));
 });
 
 app.get("/sla/policies", async (req: any) => {
@@ -272,12 +294,16 @@ app.post("/work-orders/:id/transition", async (req: any) => {
   });
   await emitWo("workorder.updated", c.tenantId, wo, c.userId, { action: b.action });
   await audit({ tenantId: c.tenantId, actor: c.userId, action: `workorder.${b.action}`, resource: `workorder/${wo.id}` });
-  if (AUTO_RESOLVE_INCIDENT && b.action === "complete" && wo.incidentId) {
-    await fetch(`${INCIDENT_URL}/incidents/${wo.incidentId}/transition`, {
-      method: "POST",
-      headers: internalHeaders({ "x-tenant-id": c.tenantId, "x-user-id": c.userId, "x-user-name": c.userName, "x-user-roles": "operator" }),
-      body: JSON.stringify({ action: "resolve", note: `Work order ${wo.ref} completed` }),
-    }).catch((err) => logger.warn({ err }, "incident auto-resolve failed"));
+  if (COMPLETE_INCIDENT_ON_WO && b.action === "complete" && wo.incidentId) {
+    const others = await withTenant(c.tenantId, async (db) => (await db.query(
+      "select count(*)::int n from sla.work_orders where incident_id=$1 and id<>$2 and status not in ('Completed','Verified','Closed','Cancelled')", [wo.incidentId, wo.id])).rows[0].n);
+    if (others === 0) {
+      await fetch(`${INCIDENT_URL}/incidents/${wo.incidentId}/transition`, {
+        method: "POST",
+        headers: internalHeaders({ "x-tenant-id": c.tenantId, "x-user-id": c.userId, "x-user-name": c.userName, "x-user-roles": "city_admin" }),
+        body: JSON.stringify({ action: "complete", note: `Work order ${wo.ref} completed by ${c.userName}` }),
+      }).catch((err) => logger.warn({ err }, "incident completion call failed"));
+    }
   }
   return wo;
 });

@@ -23,7 +23,7 @@ OUT=diagnostics.txt
   docker compose logs tb-core1 --no-log-prefix 2>&1 | grep -iE "auth|login|credential|sysadmin" | tail -20
   echo; echo "### tenant-service (last 30)"; docker compose logs tenant-service --no-log-prefix --tail 30 2>&1
   echo; echo "### failing node services (last 15 each)"
-  for s in api-gateway ingest-service normalizer-service tb-bridge-service incident-service sla-workorder-service correlation-service notification-service audit-service connector-service; do
+  for s in db-migrate api-gateway ingest-service normalizer-service tb-bridge-service asset-service incident-service sla-workorder-service correlation-service notification-service audit-service connector-service; do
     echo "--- $s"; docker compose logs "$s" --no-log-prefix --tail 15 2>&1
   done
 } > "$OUT" 2>&1

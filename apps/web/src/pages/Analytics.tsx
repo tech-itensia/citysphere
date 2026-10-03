@@ -1,17 +1,99 @@
 import { Area, AreaChart, Bar as RBar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useState } from "react";
 import { Page } from "../components/Layout";
+import { Icon } from "../components/Icon";
+import { Tabs, useTab } from "../components/Ui";
+import { Bar } from "../components/Charts";
 import { useApi } from "../lib/useApi";
-import { DOMAINS, SEV_COLOR, fmt } from "../lib/format";
+import { apiGet } from "../lib/api";
+import { DOMAINS, SEV_COLOR, fmt, downloadCsv, INCIDENT_STATUSES } from "../lib/format";
 
-/** Analyst / Leadership reporting (SOW 4.3 c/f): trends, SLA compliance, distribution by category and zone. */
+/** Analyst / Leadership reporting (SOW 4.3 c/f, D5.5): trends, SLA compliance, department scorecard and a report builder with CSV export. */
 export function Analytics() {
+  const [tab, setTab] = useTab("overview", ["overview", "departments", "builder"]);
+  return (
+    <Page title="Analytics & reports" subtitle="Trends, service levels, department performance and exportable reports.">
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: "overview", label: "Overview", icon: "BarChart3" }, { id: "departments", label: "Department scorecard", icon: "Building" }, { id: "builder", label: "Report builder", icon: "FileText" }]} />
+      {tab === "overview" && <OverviewTab />}
+      {tab === "departments" && <Scorecard />}
+      {tab === "builder" && <Builder />}
+    </Page>
+  );
+}
+
+function Scorecard() {
+  const { data } = useApi<any[]>("/incidents/departments", 60_000);
+  const max = Math.max(1, ...(data ?? []).map((d) => d.total));
+  return (
+    <div className="card">
+      <h3>Last 30 days by department <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => downloadCsv("department-scorecard.csv", data ?? [])}><Icon name="Download" size={14} /> CSV</button></h3>
+      <table className="tbl"><thead><tr><th>Department</th><th>Volume</th><th>Open</th><th>Resolved</th><th>Escalated</th><th>Resolution rate</th><th>MTTR</th></tr></thead><tbody>
+        {(data ?? []).map((d) => {
+          const rate = d.total ? Math.round((d.resolved / d.total) * 100) : 0;
+          return (
+            <tr key={d.department}><td><b>{d.department}</b></td><td style={{ minWidth: 160 }}>{d.total}<Bar pct={(d.total / max) * 100} color="#4f46e5" /></td><td>{d.open}</td><td>{d.resolved}</td>
+              <td>{d.escalated ? <span className="badge red">{d.escalated}</span> : 0}</td><td><span className={`badge ${rate >= 80 ? "green" : rate >= 50 ? "amber" : "red"}`}>{rate}%</span></td><td>{d.mttr_minutes ? `${d.mttr_minutes} min` : "–"}</td></tr>
+          );
+        })}
+      </tbody></table>
+    </div>
+  );
+}
+
+const DATASETS: Record<string, { label: string; path: (f: any) => string; cols: string[] }> = {
+  incidents: { label: "Incidents", path: (f) => `/incidents?limit=1000&sort=recent${f.status ? `&status=${encodeURIComponent(f.status)}` : ""}${f.category ? `&category=${f.category}` : ""}${f.since ? `&since=${new Date(Date.now() - Number(f.since) * 86_400_000).toISOString()}` : ""}`, cols: ["ref", "title", "category", "severity", "status", "source", "zone", "department", "assignee", "createdAt", "resolvedAt", "closedAt"] },
+  workorders: { label: "Work orders", path: () => "/work-orders", cols: ["ref", "title", "status", "priority", "department", "assignee", "dueAt", "createdAt", "completedAt"] },
+  devices: { label: "Devices", path: () => "/assets/devices?limit=2000&includeDecommissioned=true", cols: ["deviceId", "name", "deviceType", "status", "zone", "siteName", "assetName", "department", "vendor", "serial", "protocol", "lastSeen"] },
+};
+
+function Builder() {
+  const [f, setF] = useState({ dataset: "incidents", status: "", category: "", since: "30", group: "category" });
+  const [rows, setRows] = useState<any[]>();
+  const [busy, setBusy] = useState(false);
+  const ds = DATASETS[f.dataset];
+  async function run() { setBusy(true); try { setRows(await apiGet<any[]>(ds.path(f))); } finally { setBusy(false); } }
+  const groups = rows ? Object.entries(rows.reduce((m: Record<string, number>, r) => { const k = String(r[f.group] ?? "–"); m[k] = (m[k] ?? 0) + 1; return m; }, {})).sort((a, b) => b[1] - a[1]) : [];
+  const max = Math.max(1, ...groups.map((g) => g[1]));
+  return (
+    <div className="grid main-side">
+      <div className="card">
+        <div className="filters">
+          <label className="field">Dataset<select value={f.dataset} onChange={(e) => { setF({ ...f, dataset: e.target.value, group: DATASETS[e.target.value].cols[2] }); setRows(undefined); }}>{Object.entries(DATASETS).map(([k, d]) => <option key={k} value={k}>{d.label}</option>)}</select></label>
+          {f.dataset === "incidents" && <>
+            <label className="field">Period<select value={f.since} onChange={(e) => setF({ ...f, since: e.target.value })}><option value="1">24 hours</option><option value="7">7 days</option><option value="30">30 days</option><option value="">All</option></select></label>
+            <label className="field">Status<select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="">Any</option>{INCIDENT_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
+            <label className="field">Category<select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}><option value="">Any</option>{Object.keys(DOMAINS).map((c) => <option key={c} value={c}>{DOMAINS[c].label}</option>)}</select></label>
+          </>}
+          <label className="field">Group by<select value={f.group} onChange={(e) => setF({ ...f, group: e.target.value })}>{ds.cols.map((c) => <option key={c}>{c}</option>)}</select></label>
+          <button className="btn primary" onClick={run} disabled={busy}><Icon name="Play" size={14} /> Run</button>
+          {rows && <button className="btn" onClick={() => downloadCsv(`${f.dataset}-report.csv`, rows.map((r) => Object.fromEntries(ds.cols.map((c) => [c, r[c]]))))}><Icon name="Download" size={14} /> Export CSV ({rows.length})</button>}
+        </div>
+        {rows && (
+          <div style={{ maxHeight: 460, overflow: "auto" }}>
+            <table className="tbl"><thead><tr>{ds.cols.map((c) => <th key={c}>{c}</th>)}</tr></thead><tbody>
+              {rows.slice(0, 200).map((r, n) => <tr key={n}>{ds.cols.map((c) => <td key={c} style={{ fontSize: 12 }}>{String(r[c] ?? "")}</td>)}</tr>)}
+            </tbody></table>
+          </div>
+        )}
+        {!rows && <div className="empty">Choose a dataset and run the report</div>}
+      </div>
+      <div className="card">
+        <h3>Grouped by {f.group}</h3>
+        {groups.slice(0, 15).map(([k, n]) => <div key={k} style={{ marginBottom: 8 }}><div className="row between" style={{ fontSize: 13 }}><span>{k}</span><b>{n}</b></div><Bar pct={(n / max) * 100} color="#4f46e5" /></div>)}
+        {!groups.length && <div className="hint">Run a report to see the breakdown</div>}
+      </div>
+    </div>
+  );
+}
+
+function OverviewTab() {
   const { data: trend } = useApi<any[]>("/incidents/trend?days=30", 60_000);
   const { data: stats } = useApi<any>("/incidents/stats", 30_000);
   const { data: sla } = useApi<any>("/sla/summary", 30_000);
   const axis = { fontSize: 11, fill: "#64748b" };
 
   return (
-    <Page title="Analytics" subtitle="Incident trends, SLA compliance and where problems happen.">
+    <>
       <div className="grid cols-4">
         <div className="card"><div className="hint">Incidents (all time)</div><b style={{ fontSize: 26 }}>{fmt(stats?.total)}</b></div>
         <div className="card"><div className="hint">Mean time to resolve</div><b style={{ fontSize: 26 }}>{stats?.mttrMinutes ? `${stats.mttrMinutes} min` : "–"}</b></div>
@@ -78,6 +160,6 @@ export function Analytics() {
           </div>
         </div>
       </div>
-    </Page>
+    </>
   );
 }

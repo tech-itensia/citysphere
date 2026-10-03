@@ -65,7 +65,7 @@ export function Overview() {
         <div className="card">
           <CityMap title="City Live Map" center={center} devices={devices ?? []} incidents={data?.recentAlerts ?? []} onSelectIncident={setOpen} showLegend={false} />
           <div className="kpis mt">
-            <div className="kpi"><Icon name="Users" size={22} color="#64748b" /><div><b>{compact(POPULATION[data?.tenant?.id ?? "delhi"] ?? 1_000_000)}</b><span>Population</span></div></div>
+            <div className="kpi"><Icon name="Users" size={22} color="#64748b" /><div><b>{compact(data?.tenant?.population ?? POPULATION[data?.tenant?.id ?? "delhi"] ?? 1_000_000)}</b><span>Population</span></div></div>
             <div className="kpi"><Icon name="Building2" size={22} color="#64748b" /><div><b>{fmt(data?.twin?.devices)}</b><span>City Assets</span></div></div>
             <div className="kpi"><Icon name="Activity" size={22} color="#64748b" /><div><b>{uptime !== undefined ? `${uptime.toFixed(1)}%` : "–"}</b><span>Assets Online</span></div></div>
             <div className="kpi"><Icon name="Leaf" size={22} color="#22c55e" /><div><b>{aqi ?? "–"}{aqi !== undefined && <span className="delta">{aqi <= 100 ? "Good" : aqi <= 200 ? "Moderate" : "Poor"}</span>}</b><span>Air Quality (AQI)</span></div></div>

@@ -24,7 +24,7 @@ export function Layout() {
   const { me, logout } = useAuth();
   const navigate = useNavigate();
   if (!me) return null;
-  const nav = navFor(me.roles);
+  const nav = navFor(me.roles, me.city?.modules);
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -51,6 +51,8 @@ export function Page({ title, subtitle, actions, children }: { title: ReactNode;
   useEffect(() => onDemoChange(setDemo), []);
   const { data: overview } = useApi<any>(me && !me.roles.includes("citizen") && !me.roles.every((r) => r === "field_tech") ? "/overview" : null, 30_000);
   const { data: tenants } = useApi<any[]>(me?.roles.includes("super_admin") ? "/tenants" : null);
+  const { data: announcements } = useApi<any[]>(me ? "/announcements" : null, 120_000);
+  const [hidden, setHidden] = useState<string[]>([]);
   const weather = overview?.weather;
   const critical = overview?.twin?.statusCounts?.Critical ?? 0;
   const attention = (overview?.twin?.statusCounts?.Attention ?? 0) + (overview?.twin?.statusCounts?.Moderate ?? 0);
@@ -89,6 +91,13 @@ export function Page({ title, subtitle, actions, children }: { title: ReactNode;
           </span>
         )}
       </div>
+      {(announcements ?? []).filter((a) => !hidden.includes(a.id)).slice(0, 2).map((a) => (
+        <div key={a.id} className={`banner ${a.level}`}>
+          <Icon name={a.level === "critical" ? "AlertTriangle" : "Info"} size={16} />
+          <div style={{ flex: 1 }}><b>{a.title}</b>{a.body ? ` — ${a.body}` : ""}{a.tenantId === "*" && <span className="hint"> · Platform notice</span>}</div>
+          <button className="btn sm" onClick={() => setHidden((h) => [...h, a.id])} aria-label="Dismiss"><Icon name="X" size={13} /></button>
+        </div>
+      ))}
       {children}
     </>
   );

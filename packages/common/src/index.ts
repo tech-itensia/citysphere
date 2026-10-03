@@ -12,3 +12,4 @@ export * from "./db.ts";
 export * from "./metrics.ts";
 export * from "./http.ts";
 export * from "./audit.ts";
+export * from "./mapping.ts";

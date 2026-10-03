@@ -46,3 +46,38 @@ export function ragClass(r?: string) {
   if (r === "met") return "green";
   return "green";
 }
+
+/** Incident lifecycle v2 (plan section F). */
+export const INCIDENT_STATUSES = ["New", "Acknowledged", "Assigned", "In Progress", "Escalated", "Resolution Pending", "Resolved", "Closed"];
+export const OPEN_STATUSES = ["New", "Acknowledged", "Assigned", "In Progress", "Escalated", "Resolution Pending"];
+export const isOpenStatus = (s?: string) => OPEN_STATUSES.includes(s ?? "");
+
+export const ACTION_LABEL: Record<string, string> = {
+  acknowledge: "Acknowledge", assign: "Assign", start: "Start work", escalate: "Escalate", complete: "Mark work done",
+  resolve: "Resolve", confirm: "Confirm fixed", reopen: "Reopen", close: "Close", dismiss: "Dismiss",
+};
+export const CLOSURE_CODES: Array<[string, string]> = [["duplicate", "Duplicate"], ["false_alarm", "False alarm"], ["out_of_scope", "Out of scope"], ["resolved_elsewhere", "Resolved elsewhere"], ["test", "Test"]];
+
+/** Device registry lifecycle. */
+export const DEVICE_STATUSES = ["Discovered", "Registered", "Provisioned", "Active", "Maintenance", "Faulty", "Decommissioned"];
+export const DEVICE_TONE: Record<string, string> = { Discovered: "amber", Registered: "blue", Provisioned: "blue", Active: "green", Maintenance: "amber", Faulty: "red", Decommissioned: "grey" };
+export const PROTOCOL_LABEL: Record<string, string> = { mqtt: "MQTT to ThingsBoard", http: "HTTP to ThingsBoard", "http-ingest": "HTTP ingest API to Kafka", kafka: "Kafka topic", connector: "Vendor connector" };
+
+/** mm:ss / h:mm countdown text; negative = overdue. */
+export function countdown(ms: number): string {
+  const neg = ms < 0, a = Math.abs(ms);
+  const h = Math.floor(a / 3600_000), m = Math.floor((a % 3600_000) / 60_000), s = Math.floor((a % 60_000) / 1000);
+  const body = h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}:${String(s).padStart(2, "0")}`;
+  return neg ? `-${body}` : body;
+}
+
+export function downloadCsv(name: string, rows: Array<Record<string, unknown>>) {
+  if (!rows.length) return;
+  const cols = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+  const esc = (v: unknown) => { const s = v === undefined || v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const text = [cols.join(","), ...rows.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\n");
+  const url = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { session, apiGet } from "./api";
+import { setMockIdentity } from "./mock";
 import { DEMO_USERS, primaryPersona, PERSONA_META, type Persona } from "./personas";
 
 export interface Me {
@@ -11,6 +12,7 @@ export interface Me {
   departments: string[];
   home: string;
   mode: "sso" | "demo";
+  city?: { id: string; name: string; cityName: string; center?: { lat: number; lon: number }; plan?: string; modules?: string[]; status?: string; branding?: Record<string, any> };
 }
 
 interface AuthState {
@@ -57,6 +59,7 @@ let kc: any;
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [ready, setReady] = useState(false);
+  useEffect(() => { if (me) setMockIdentity(me.roles, me.userName); }, [me]);
 
   const fromGateway = useCallback(async (fallback: Me): Promise<Me> => {
     try {
@@ -125,7 +128,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const switchTenant = useCallback((tenantId: string) => {
     session.tenantOverride = tenantId;
-    setMe((m) => (m ? { ...m, tenantId } : m));
+    setMe((m) => (m ? { ...m, tenantId, city: m.city?.id === tenantId ? m.city : undefined } : m));
+    void apiGet<any>("/me").then((x) => x && setMe((m) => (m ? { ...m, city: x.city } : m))).catch(() => undefined);
   }, []);
 
   return <Ctx.Provider value={{ me, ready, loginDemo, loginSso, logout, switchTenant }}>{children}</Ctx.Provider>;

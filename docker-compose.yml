@@ -20,6 +20,7 @@ x-node-service: &node-service
     postgres: { condition: service_healthy }
     redis: { condition: service_healthy }
     kafka-init: { condition: service_completed_successfully }
+    db-migrate: { condition: service_completed_successfully }
 
 x-tb-node: &tb-node
   image: thingsboard/tb-node:${TB_VERSION:-latest}
@@ -42,6 +43,16 @@ services:
       - pg-data:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 5s, retries: 20 }
+
+  db-migrate: # applies infra/postgres/migrations/*.sql in order, once each, then exits
+    image: postgres:16-alpine
+    entrypoint: ["sh", "/migrate.sh"]
+    environment: { PGHOST: postgres, PGUSER: postgres, PGPASSWORD: postgres }
+    volumes:
+      - ./infra/postgres/migrate.sh:/migrate.sh:ro
+      - ./infra/postgres/migrations:/migrations:ro
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
 
   redis:
     image: redis:7-alpine
@@ -175,6 +186,8 @@ services:
       <<: *node-env
       SERVICE_NAME: tenant-service
       TB_URL: http://tb-proxy
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: scaas
       TB_KAFKA_SERVERS: kafka:9092
 
   ingest-service:
@@ -197,6 +210,15 @@ services:
       TB_URL: http://tb-proxy
       TB_HTTP_TRANSPORT_URL: http://tb-http-transport1:8081
 
+  asset-service: # device registry: zone -> site -> asset -> device, lifecycle, ThingsBoard provisioning, discovery
+    <<: *node-service
+    command: ["node_modules/.bin/tsx", "services/asset-service/src/index.ts"]
+    environment:
+      <<: *node-env
+      SERVICE_NAME: asset-service
+      TB_URL: http://tb-proxy
+      TB_PUBLIC_HOST: ${TB_PUBLIC_HOST:-localhost}
+
   incident-service:
     <<: *node-service
     command: ["node_modules/.bin/tsx", "services/incident-service/src/index.ts"]
@@ -205,7 +227,7 @@ services:
   sla-workorder-service:
     <<: *node-service
     command: ["node_modules/.bin/tsx", "services/sla-workorder-service/src/index.ts"]
-    environment: { <<: *node-env, SERVICE_NAME: sla-workorder-service }
+    environment: { <<: *node-env, SERVICE_NAME: sla-workorder-service, SLA_RESOLUTION_STOP: "${SLA_RESOLUTION_STOP:-closed}" }
 
   correlation-service:
     <<: *node-service
@@ -242,6 +264,10 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:3000
       AUDIT_SERVICE_URL: http://audit-service:3000
       CONNECTOR_SERVICE_URL: http://connector-service:3000
+      ASSET_SERVICE_URL: http://asset-service:3000
+      INGEST_SERVICE_URL: http://ingest-service:3000
+      NORMALIZER_SERVICE_URL: http://normalizer-service:3000
+      CORRELATION_SERVICE_URL: http://correlation-service:3000
 
   web:
     build: { context: ./apps/web }

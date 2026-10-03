@@ -51,11 +51,21 @@ async function send(tenantId: string, apiKey: string, recs: unknown[]) {
   }
 }
 
+/** Two third-party sensors that are NOT in the registry and speak a vendor dialect: they appear in the
+ *  Discovered queue and demonstrate the "Acme AirSense v2" mapping profile once an admin maps them. */
+function vendorRecords(tenantId: string, now: number) {
+  const c = CITIES[tenantId].zones[0];
+  return [1, 2].map((n) => ({
+    deviceId: `ACME-AQ-90${n}`, deviceType: "Air Quality Station", ts: now, location: { lat: c.lat + 0.004 * n, lon: c.lon - 0.003 * n },
+    values: { pm2_5_ugm3: Math.round(40 + noise() * 30), pm10_ugm3: Math.round(70 + noise() * 40), no2_ppb: Math.round(15 + noise() * 10), temp_f: Math.round(84 + noise() * 6), rssi: -70 },
+  }));
+}
+
 async function tick() {
   const now = Date.now();
   for (const f of fleets) {
     try {
-      await send(f.tenantId, f.apiKey, records(f.devices, now));
+      await send(f.tenantId, f.apiKey, [...records(f.devices, now), ...vendorRecords(f.tenantId, now)]);
     } catch (err) {
       console.error(`[${new Date().toISOString()}] send failed:`, (err as Error).message);
     }

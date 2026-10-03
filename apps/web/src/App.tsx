@@ -14,13 +14,15 @@ import { Ops } from "./pages/Ops";
 import { Admin } from "./pages/Admin";
 import { Platform } from "./pages/Platform";
 import { Citizen } from "./pages/Citizen";
+import { Assets } from "./pages/Assets";
+import { Onboard } from "./pages/Onboard";
 import type { ReactNode } from "react";
 
 function Guard({ children }: { children: ReactNode }) {
   const { me } = useAuth();
   const loc = useLocation();
   if (!me) return <Navigate to="/login" replace />;
-  if (!canAccess(me.roles, loc.pathname)) return <Navigate to={me.home} replace />;
+  if (!canAccess(me.roles, loc.pathname, me.city?.modules)) return <Navigate to={me.home} replace />;
   return <>{children}</>;
 }
 
@@ -43,6 +45,8 @@ export function App() {
         <Route path="/admin" element={<Admin />} />
         <Route path="/platform" element={<Platform />} />
         <Route path="/citizen" element={<Citizen />} />
+        <Route path="/assets" element={<Assets />} />
+        <Route path="/assets/onboard" element={<Onboard />} />
       </Route>
       <Route path="*" element={<Navigate to={me ? me.home : "/login"} replace />} />
     </Routes>

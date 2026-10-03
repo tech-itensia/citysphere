@@ -9,5 +9,6 @@ export const Topics = {
   workOrders: "scaas.workorders",
   notifications: "scaas.notifications.outbox",
   audit: "scaas.audit",
+  assets: "scaas.assets",
   dlq: (consumerGroup: string) => `scaas.dlq.${consumerGroup}`,
 } as const;

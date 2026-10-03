@@ -23,7 +23,8 @@ create scaas.sla                      $((30 * DAY))
 create scaas.workorders               $((30 * DAY))
 create scaas.notifications.outbox     $((7 * DAY))
 create scaas.audit                    $((90 * DAY))
-for g in normalizer tb-bridge tb-bridge-alarms incident-service sla-workorder-service notification-service audit-service correlation-observations correlation-alarms; do
+create scaas.assets                   $((30 * DAY))
+for g in normalizer tb-bridge tb-bridge-alarms incident-service sla-workorder-service notification-service audit-service correlation-observations correlation-alarms asset-registry; do
   create "scaas.dlq.$g" $((30 * DAY))
 done
 echo "SCaaS topics ready"

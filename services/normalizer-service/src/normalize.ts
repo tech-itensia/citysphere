@@ -1,5 +1,6 @@
 import { NonRetryableError } from "@scaas/common/errors";
 import type { EventEnvelope, Observation } from "@scaas/common";
+import { applyMapping, type DeviceMapEntry } from "@scaas/common/mapping";
 
 /** Device-id prefix -> device type, used when a producer omits deviceType. */
 export const PREFIX_TYPES: Record<string, string> = {
@@ -118,5 +119,33 @@ export function normalize(event: EventEnvelope<RawData>, now = Date.now()): Obse
     zone: d.zone,
     attributes: d.attributes,
     origin: event.source,
+  };
+}
+
+const MOVING_TYPES = new Set(["Vehicle", "Drone", "Air Taxi", "Emergency Unit"]);
+
+/**
+ * Apply the device registry (asset-service projection): vendor-key mapping rules, then registry overrides for
+ * type, zone and fixed location. Returns undefined for decommissioned devices (their data is dropped).
+ */
+export function applyRegistry(obs: Observation, entry?: DeviceMapEntry): Observation | undefined {
+  if (!entry) return obs;
+  if (entry.status === "Decommissioned") return undefined;
+  const values = entry.rules?.length ? applyMapping(obs.values, entry.rules) : obs.values;
+  const type = entry.deviceType && entry.deviceType !== "Generic Sensor" ? entry.deviceType : obs.deviceType;
+  const fixed = !MOVING_TYPES.has(type) && entry.lat !== undefined && entry.lon !== undefined;
+  return {
+    ...obs,
+    deviceType: type,
+    values,
+    zone: entry.zone ?? obs.zone,
+    location: fixed ? { lat: entry.lat!, lon: entry.lon! } : obs.location,
+    attributes: {
+      ...(obs.attributes ?? {}),
+      registryStatus: entry.status,
+      ...(entry.department ? { department: entry.department } : {}),
+      ...(entry.site ? { site: entry.site } : {}),
+      ...(entry.asset ? { asset: entry.asset } : {}),
+    },
   };
 }

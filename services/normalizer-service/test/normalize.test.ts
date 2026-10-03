@@ -36,3 +36,24 @@ test("epoch-ms string timestamps from ThingsBoard are understood", () => {
   const o = normalize({ ...base, source: "thingsboard", occurredAt: "1790000000000", data: { deviceId: "SL-1", values: { powerW: 3 } } } as any, 1790000000500);
   assert.equal(o.ts, 1790000000000);
 });
+
+import { applyRegistry } from "../src/normalize.ts";
+
+test("registry mapping profile renames, scales and drops vendor keys", () => {
+  const obs = { deviceId: "ACME-AQ-901", deviceType: "Air Quality Station", ts: 1, origin: "ingest-api", values: { pm2_5_ugm3: 50, temp_f: 86, rssi: -70 }, location: { lat: 1, lon: 2 } };
+  const out = applyRegistry(obs, { deviceId: "ACME-AQ-901", deviceType: "Air Quality Station", status: "Active", zone: "CP", lat: 28.6, lon: 77.2,
+    rules: [{ from: "pm2_5_ugm3", to: "pm25" }, { from: "temp_f", to: "temperatureC", scale: 0.5556, offset: -17.778 }, { from: "rssi", to: "", drop: true }] })!;
+  assert.equal(out.values.pm25, 50);
+  assert.ok(Math.abs((out.values.temperatureC as number) - 30) < 0.05);
+  assert.equal(out.values.rssi, undefined);
+  assert.equal(out.zone, "CP");
+  assert.deepEqual(out.location, { lat: 28.6, lon: 77.2 });
+  assert.equal(out.attributes?.registryStatus, "Active");
+});
+
+test("registry keeps live location for moving assets and drops decommissioned devices", () => {
+  const obs = { deviceId: "VH-1", deviceType: "Vehicle", ts: 1, origin: "ingest-api", values: { speedKmh: 30 }, location: { lat: 5, lon: 6 } };
+  assert.deepEqual(applyRegistry(obs, { deviceId: "VH-1", deviceType: "Vehicle", status: "Active", lat: 1, lon: 1 })!.location, { lat: 5, lon: 6 });
+  assert.equal(applyRegistry(obs, { deviceId: "VH-1", deviceType: "Vehicle", status: "Decommissioned" }), undefined);
+  assert.equal(applyRegistry(obs, undefined), obs);
+});

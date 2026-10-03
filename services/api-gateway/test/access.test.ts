@@ -23,3 +23,23 @@ test("tenant and department from Keycloak groups", () => {
   assert.equal(tenantFromGroups(["/other"]), undefined);
   assert.equal(homeFor(["operator", "analyst"]), "/command-centre");
 });
+
+import { entitled } from "../src/access.ts";
+
+test("specific routes win over broader ones; new v2 routes", () => {
+  assert.equal(matchRoute("/api/notifications/preferences")?.path, "/notifications/preferences");
+  assert.equal(allowed(["citizen"], matchRoute("/api/notifications/preferences")!), true);
+  assert.equal(allowed(["citizen"], matchRoute("/api/notifications")!), false);
+  assert.equal(matchRoute("/api/assets/devices/SL-1/provision")?.upstream, "ASSET");
+  assert.equal(allowed(["citizen"], matchRoute("/api/assets/devices")!), false);
+  assert.equal(allowed(["citizen"], matchRoute("/api/advisories")!), true);
+  assert.equal(allowed(["operator"], matchRoute("/api/users")!), false);
+});
+
+test("module entitlements", () => {
+  const twin = matchRoute("/api/twin/devices")!;
+  assert.equal(entitled(["operator"], twin, ["command_centre"]), false);
+  assert.equal(entitled(["operator"], twin, ["digital_twin"]), true);
+  assert.equal(entitled(["super_admin"], twin, []), true);
+  assert.equal(entitled(["operator"], matchRoute("/api/incidents")!, []), true);
+});
